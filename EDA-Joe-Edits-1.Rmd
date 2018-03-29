@@ -1,0 +1,138 @@
+---
+title: "Project2"
+author: "Joseph Haaga"
+date: "12/10/2017"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r basicfcn, include=F}
+# can add quietly=T option to the require() function
+loadPkg = function(x) { if (!require(x,character.only=T, quietly =T)) { install.packages(x,dep=T,repos="http://cran.us.r-project.org"); if(!require(x,character.only=T)) stop("Package not found") } }
+```
+
+# Baseball Teams
+
+## EDA
+Lets load the data and look at the correlation matrix
+```{r}
+library(readr)
+raw <- read_csv("Teams_Cleaned2.csv")
+num_cols <- sapply(raw, is.numeric)
+only_numeric <- raw[ , num_cols]
+str(only_numeric)
+corrs <- cor(only_numeric)
+loadPkg('data.table')
+library(data.table)
+corrs_df <- setDT(melt(corrs))[Var1 != Var2, .SD[which.max(value)], keyby=Var1]
+corrs_df[order(-value)]
+```
+
+```{r}
+loadPkg('corrplot')
+library(corrplot)
+
+corrplot(cor(only_numeric, use = "complete.obs"), method = "number", tl.cex = .5)
+corrplot(cor(only_numeric, use = "complete.obs"), is.corr = FALSE, win.asp = .7, order = "hclust", tl.cex = .5)
+```
+
+```{r}
+plot(raw$yearID, raw$Shut_outs)
+```
+
+Let's look at a particular team to get a sense of how much data we have for each organization
+```{r}
+philly <- raw[ which(raw$Team == 'Philadelphia Athletics'), ]
+plot(philly$yearID, philly$Runs_scored)
+plot(philly$yearID, philly$Wins)
+```
+
+## Regression Modeling
+We will try to predict Wins next. 
+```{r}
+wins.lm <- lm(Wins ~ . , data = only_numeric)
+summary(wins.lm)
+
+```
+According to the adjusted R squared value, we can explain 99.6% of the variance in Hits based on these 30 predictors. Again, the model is likely overfitted and subject to much multicollinearity.
+
+The next model, firstmod was fitted with Losses, Rank, League_winner, and World Series Winner, and complete_games were removed. Losses is the opposite of wins, and the other four variables mentioned above are determined post-season, and therefore would not make sense to retain in the model. Attendance was also removed. This model has R2 value of .924.
+
+```{r}
+firstmod <- lm(Wins ~ .-Losses - Rank  - Complete_games - Attendance, data = only_numeric)
+summary(firstmod)
+```
+After fitting the firstmod model, many variables were removed, including those whose coefficients were not significat at 0.05. The following model, secondmod, contains the remaining variables. All explanatory variable coefficients are significant in this model while maintaining R2 value of .923
+```{r}
+secondmod <- lm(Wins ~ .-Losses - Rank - Complete_games - Attendance - Strikeouts_by_pitcher -Homeruns_allowed - Hits_allowed -Doubles -Triples - Homeruns - Walks -yearID -Games_played -Home_games, data = only_numeric)
+summary(secondmod)
+```
+
+## Feature Selection & Dimensionality Reduction
+Let's try LASSO & Ridge to handle multicollinearity and feature selection/dimensionality reduction:
+
+```{r}
+no.na = only_numeric[ , colSums(is.na(only_numeric)) == 0]
+x <-x <- model.matrix(Wins~., no.na)[,-1]
+y <- no.na$Wins
+lambda <- 10^seq(10, -2, length = 100)
+loadPkg('glmnet')
+library(glmnet)
+set.seed(489)
+train = sample(1:nrow(x), nrow(x)/2)
+test = (-train)
+ytest = y[test]
+
+wins.lm2 <- lm(Wins~., data = only_numeric)
+coef(wins.lm2)
+
+ridge.mod <- glmnet(x, y, alpha = 0, lambda = lambda)
+predict(ridge.mod, s = 0, exact = T, type = 'coefficients', x=x, y=y)[1:14,]
+```
+
+```{r}
+plot(cv.glmnet(x, y))
+```
+
+The below is the final model, fitted with variables 1 through 14 as recommended by the ridge regression technique, minus losses, yearID, rank.
+```{r}
+finalmod <- lm(Wins~ Opponents_runs_scored + Games_played + Runs_scored + At_bats + Hits + Doubles + Triples + Homeruns + Walks + Stollen_bases, data = only_numeric)
+summary(finalmod)
+```
+## Model Evaluation
+```{r}
+loadPkg('car')
+
+outlierTest(finalmod)
+qqPlot(finalmod, main="QQ Plot")
+```
+
+```{r}
+loadPkg('gvlma')
+library(gvlma)
+gvmodel <- gvlma(finalmod) 
+summary(gvmodel)
+```
+
+```{r}
+residualPlot(finalmod)
+# Evaluate Nonlinearity
+# component + residual plot 
+crPlots(finalmod)
+```
+
+
+```{r}
+finalmod <- lm(Wins~ Opponents_runs_scored + Games_played + Runs_scored + At_bats + Hits + Doubles + Triples + Homeruns + Walks + Stollen_bases, data = only_numeric)
+
+
+summary(finalmod)
+crPlots(finalmod)
+
+
+```
+
