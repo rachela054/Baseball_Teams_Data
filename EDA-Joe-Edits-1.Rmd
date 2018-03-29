@@ -1,11 +1,4 @@
----
-title: "Project2"
-author: "Joseph Haaga"
-date: "12/10/2017"
-output:
-  html_document: default
-  word_document: default
----
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
